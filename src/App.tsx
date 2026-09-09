@@ -98,7 +98,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn('AI analysis status notice:', err?.message || err);
-      setAnalysisError('AI analysis unavailable.');
+      setAnalysisError(err?.message || 'AI analysis unavailable.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -185,9 +185,9 @@ export default function App() {
             <div className="flex items-start gap-3">
               <AlertOctagon className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <div>
-                <h4 className="text-sm font-bold text-red-900">{analysisError}</h4>
-                <p className="text-xs text-red-700 mt-0.5">
-                  The live AI vision service could not complete the acoustic scan analysis. You can retry or switch to Demo Mode for presentation.
+                <h4 className="text-sm font-bold text-red-900">AI analysis unavailable</h4>
+                <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                  {analysisError}
                 </p>
               </div>
             </div>

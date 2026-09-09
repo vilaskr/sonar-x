@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 const app = express();
 const PORT = 3000;
@@ -13,7 +13,7 @@ app.use(express.urlencoded({ extended: true, limit: "30mb" }));
 
 // Server-side Gemini initialization
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     return null;
   }
@@ -32,16 +32,16 @@ app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     service: "SONARX Backend Service",
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY),
   });
 });
 
 // Candidate models for automatic failover during regional load spikes
-// gemini-3.1-flash-lite is primary due to low latency and high availability
+// gemini-3.1-flash-lite is primary due to low latency, high availability, and rapid multimodal vision
 const CANDIDATE_MODELS = [
   "gemini-3.1-flash-lite",
-  "gemini-3.8-flash",
   "gemini-flash-latest",
+  "gemini-3.8-flash",
 ];
 
 // Primary AI Analysis endpoint for Sonar Imagery
@@ -57,7 +57,8 @@ app.post("/api/analyze-sonar", async (req, res) => {
     if (!ai) {
       return res.status(503).json({
         error: "AI analysis unavailable",
-        message: "Gemini API key is not configured in server environment.",
+        message:
+          "GEMINI_API_KEY is not configured in server environment. If hosted on Vercel, please open Vercel Project Settings -> Environment Variables, add GEMINI_API_KEY, and redeploy.",
       });
     }
 
@@ -65,140 +66,134 @@ app.post("/api/analyze-sonar", async (req, res) => {
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, "");
 
     const prompt = `You are a certified marine geophysics acoustic sensor specialist for SONARX (SIH26057 - Ministry of Earth Sciences / NIOT).
-Your task is to analyze this Side-Scan Sonar (SSS) acoustic waterfall imagery to detect potential underwater marine debris or anomalies.
+Analyze this Side-Scan Sonar (SSS) acoustic waterfall imagery with high scientific precision.
 
-Sonar image interpretation criteria:
-1. Examine acoustic highlights (high backscatter brightness) and corresponding trailing acoustic shadows (dark absorption areas).
-2. Distinguish artificial/man-made geometric profiles (rectilinear boxes, cylinders, pipelines, angular frames, entangled nets) from natural seafloor features (sand ripples, rocky ledges, biologics, water column reflections).
-3. Types to identify if present:
-   - "Possible Marine Debris"
-   - "Possible Shipwreck / Structure"
-   - "Possible Submerged Pipeline / Cable"
+ACOUSTIC TARGET INTERPRETATION PROTOCOL:
+1. Acoustic Highlight (High Backscatter): A bright return where the acoustic pulse strikes the exposed surface of a protruding object or structure.
+2. Acoustic Shadow (Zone of No Return): The dark void directly behind the object along the sonar beam propagation direction. The shadow shape reveals the object's profile and its length indicates physical relief off the seabed.
+3. Natural vs. Man-made Classification:
+   - Natural seabed (sand ripples, uniform silt/mud, bioturbation) presents continuous periodic undulating patterns without isolated, sharp acoustic shadows.
+   - Man-made marine debris / anomalies display distinct geometric boundaries (cylinders/drums, rectangular containers/crates, straight pipelines, structural wreckage frames, or irregular ghost net tangles) casting sharp, isolated shadows.
+4. Target categories:
    - "Possible Cylindrical / Drum Object"
+   - "Possible Shipping Container / Cargo Box"
    - "Possible Ghost Net / Abandoned Fishing Gear"
+   - "Possible Submerged Pipeline / Cable"
+   - "Possible Shipwreck / Structural Debris"
+   - "Possible Marine Debris"
    - "Natural Seabed Formation"
    - "No significant anomaly"
 
-CRITICAL INSTRUCTIONS:
-- Do NOT force a detection if the image displays uniform or natural seabed backscatter without distinct anomalies.
-- If no clear anomaly exists, set "detected": false, "objectType": "No significant anomaly", "confidence": 0, "severity": "LOW", "boundingBox": null.
-- If an anomaly is identified, provide boundingBox with normalized coordinates [0 to 1000]: ymin (top), xmin (left), ymax (bottom), xmax (right).
+ACCURACY CRITERIA:
+- If the image displays uniform seafloor without an isolated anomalous target, you MUST set detected=false, objectType="No significant anomaly", confidence=0, severity="LOW", boundingBox=null.
+- If an anomaly is identified, calculate accurate normalized coordinates [0-1000] for boundingBox:
+  - ymin: upper boundary
+  - xmin: left boundary
+  - ymax: lower boundary
+  - xmax: right boundary
+  The boundingBox MUST tightly frame BOTH the bright acoustic highlight AND its accompanying dark acoustic shadow.
 - Confidence must be an estimated float between 0.00 and 1.00.
-- Severity must be one of: "LOW", "MEDIUM", "HIGH".
+- Severity must be "LOW", "MEDIUM", or "HIGH".
+- Anomaly reason must factually explain the observed acoustic highlight and shadow morphology.`;
 
-Return JSON conforming strictly to the requested schema.`;
-
-    const requestConfig = {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          detected: {
-            type: Type.BOOLEAN,
-            description: "Whether a convincing marine debris or anomaly was detected.",
-          },
-          objectType: {
-            type: Type.STRING,
-            description: "Type of anomaly detected or 'No significant anomaly'",
-          },
-          confidence: {
-            type: Type.NUMBER,
-            description: "Estimated AI confidence from 0.0 to 1.0",
-          },
-          severity: {
-            type: Type.STRING,
-            enum: ["LOW", "MEDIUM", "HIGH"],
-            description: "Risk or priority severity level",
-          },
-          description: {
-            type: Type.STRING,
-            description: "Brief factual summary of the identified feature.",
-          },
-          anomalyReason: {
-            type: Type.STRING,
-            description: "Specific acoustic-shadow and reflectivity characteristics observed.",
-          },
-          boundingBox: {
-            type: Type.OBJECT,
-            description: "Normalized coordinates from 0 to 1000",
-            properties: {
-              ymin: { type: Type.NUMBER },
-              xmin: { type: Type.NUMBER },
-              ymax: { type: Type.NUMBER },
-              xmax: { type: Type.NUMBER },
-            },
-          },
-          recommendation: {
-            type: Type.STRING,
-            description: "Actionable recommendation for survey vessel operations",
-          },
-          humanVerificationRequired: {
-            type: Type.BOOLEAN,
-            description: "Always true if anomaly is detected.",
-          },
+    const requestSchema = {
+      type: Type.OBJECT,
+      properties: {
+        detected: {
+          type: Type.BOOLEAN,
+          description: "Whether a convincing marine debris or anomaly was detected.",
         },
-        required: [
-          "detected",
-          "objectType",
-          "confidence",
-          "severity",
-          "description",
-          "anomalyReason",
-          "recommendation",
-          "humanVerificationRequired",
-        ],
+        objectType: {
+          type: Type.STRING,
+          description: "Type of anomaly detected or 'No significant anomaly'",
+        },
+        confidence: {
+          type: Type.NUMBER,
+          description: "Estimated AI confidence from 0.0 to 1.0",
+        },
+        severity: {
+          type: Type.STRING,
+          enum: ["LOW", "MEDIUM", "HIGH"],
+          description: "Risk or priority severity level",
+        },
+        description: {
+          type: Type.STRING,
+          description: "Brief factual summary of the identified feature.",
+        },
+        anomalyReason: {
+          type: Type.STRING,
+          description: "Specific acoustic-shadow and reflectivity characteristics observed.",
+        },
+        boundingBox: {
+          type: Type.OBJECT,
+          description: "Normalized coordinates from 0 to 1000",
+          properties: {
+            ymin: { type: Type.NUMBER },
+            xmin: { type: Type.NUMBER },
+            ymax: { type: Type.NUMBER },
+            xmax: { type: Type.NUMBER },
+          },
+          required: ["ymin", "xmin", "ymax", "xmax"],
+        },
+        recommendation: {
+          type: Type.STRING,
+          description: "Actionable recommendation for survey vessel operations",
+        },
+        humanVerificationRequired: {
+          type: Type.BOOLEAN,
+          description: "Always true if anomaly is detected.",
+        },
       },
+      required: [
+        "detected",
+        "objectType",
+        "confidence",
+        "severity",
+        "description",
+        "anomalyReason",
+        "recommendation",
+        "humanVerificationRequired",
+      ],
     };
 
     let responseText: string | undefined;
     let lastError: any = null;
 
-    // Iterate through candidate models with automated failover and retry on 503 high demand
+    // Iterate through candidate models for fast response and resilience
     for (const modelName of CANDIDATE_MODELS) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const response = await ai.models.generateContent({
-            model: modelName,
-            contents: {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType,
-                    data: cleanBase64,
-                  },
+      try {
+        const isGemini3 = modelName.startsWith("gemini-3");
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: cleanBase64,
                 },
-                {
-                  text: prompt,
-                },
-              ],
-            },
-            config: requestConfig,
-          });
+              },
+              {
+                text: prompt,
+              },
+            ],
+          },
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: requestSchema,
+            maxOutputTokens: 600,
+            ...(isGemini3 ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } } : {}),
+          },
+        });
 
-          if (response?.text) {
-            responseText = response.text;
-            break;
-          }
-        } catch (err: any) {
-          lastError = err;
-          const errMsg = err?.message || String(err);
-          const isTransient =
-            errMsg.includes("503") ||
-            errMsg.includes("high demand") ||
-            errMsg.includes("UNAVAILABLE") ||
-            errMsg.includes("429") ||
-            errMsg.includes("resource exhausted");
-
-          if (isTransient && attempt < 2) {
-            await new Promise((res) => setTimeout(res, 600));
-          } else {
-            break;
-          }
+        if (response?.text) {
+          responseText = response.text;
+          break;
         }
-      }
-
-      if (responseText) {
-        break;
+      } catch (err: any) {
+        lastError = err;
+        // Proceed immediately to next model without delay
+        continue;
       }
     }
 
