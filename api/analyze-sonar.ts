@@ -23,47 +23,68 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-const prompt = `You are a certified marine geophysics acoustic sensor specialist for SONARX (SIH26057 - Ministry of Earth Sciences / NIOT).
-Analyze this Side-Scan Sonar (SSS) acoustic waterfall imagery with high scientific precision.
+const prompt = `You are a certified marine acoustic geophysicist and forensic Search & Recovery (SAR) sonar analyst for SONARX (SIH26057 - Ministry of Earth Sciences / NIOT).
+Analyze this underwater sonar (Side-Scan Sonar waterfall scan) or marine survey imagery with extreme diagnostic precision.
 
-ACOUSTIC TARGET INTERPRETATION PROTOCOL:
-1. Acoustic Highlight (High Backscatter): A bright return where the acoustic pulse strikes the exposed surface of a protruding object or structure.
-2. Acoustic Shadow (Zone of No Return): The dark void directly behind the object along the sonar beam propagation direction. The shadow shape reveals the object's profile and its length indicates physical relief off the seabed.
-3. Natural vs. Man-made Classification:
-   - Natural seabed (sand ripples, uniform silt/mud, bioturbation) presents continuous periodic undulating patterns without isolated, sharp acoustic shadows.
-   - Man-made marine debris / anomalies display distinct geometric boundaries (cylinders/drums, rectangular containers/crates, straight pipelines, structural wreckage frames, or irregular ghost net tangles) casting sharp, isolated shadows.
-4. Target categories:
-   - "Possible Cylindrical / Drum Object"
-   - "Possible Shipping Container / Cargo Box"
-   - "Possible Ghost Net / Abandoned Fishing Gear"
-   - "Possible Submerged Pipeline / Cable"
-   - "Possible Shipwreck / Structural Debris"
-   - "Possible Marine Debris"
-   - "Natural Seabed Formation"
-   - "No significant anomaly"
+CRITICAL TARGET DISCRIMINATION & MORPHOLOGY TAXONOMY:
 
-ACCURACY CRITERIA:
-- If the image displays uniform seafloor without an isolated anomalous target, you MUST set detected=false, objectType="No significant anomaly", confidence=0, severity="LOW", boundingBox=null.
-- If an anomaly is identified, calculate accurate normalized coordinates [0-1000] for boundingBox:
-  - ymin: upper boundary
-  - xmin: left boundary
-  - ymax: lower boundary
-  - xmax: right boundary
-  The boundingBox MUST tightly frame BOTH the bright acoustic highlight AND its accompanying dark acoustic shadow.
-- Confidence must be an estimated float between 0.00 and 1.00.
-- Severity must be "LOW", "MEDIUM", or "HIGH".
-- Anomaly reason must factually explain the observed acoustic highlight and shadow morphology.`;
+1. "Human Body / Diver / Person (Search and Rescue Target)" [CRITICAL SAR PRIORITY]
+   - Morphological Identifiers: Human anatomical geometry—head, torso, arms, legs/fins, or a diver in scuba gear (distinctive air cylinder acoustic highlight, regulator, mask, harness, swim fins). Target may be supine, prone, or curled on the seabed or riverbed.
+   - Scale & Shadow: Human scale (~1.5m to 2.0m). The acoustic shadow reveals human-proportioned silhouettes (torso with tapering limb relief).
+   - STRICT RULE: NEVER classify a human body, diver, swimmer, or drowning victim silhouette as a shipwreck, vessel, cargo container, or rock. If human anatomical features or diver equipment are detected, you MUST classify as "Human Body / Diver / Person (Search and Rescue Target)" and set severity to "HIGH".
+
+2. "Shipwreck / Vessel Hull / Boat Wreckage"
+   - Morphological Identifiers: Very large maritime vessel structure (>5 to 100+ meters in length), prominent hull contours, gunwales, bow, stern, keel, ribs, deck machinery, mast, or scattered hull debris.
+   - Scale: Expansive (>5-10m). Visually massive compared to human or small debris targets.
+
+3. "Submerged Vehicle / Automobile"
+   - Morphological Identifiers: Boxy automobile/truck body (~3-6m length), wheel wells, chassis, roof frame, or aircraft wreckage.
+
+4. "Possible Cylindrical / Drum Object"
+   - Morphological Identifiers: Symmetrical cylindrical 55-gallon drum, chemical container, or storage barrel. Bright curved specular highlight paired with an adjoining rectangular or elliptical acoustic shadow.
+
+5. "Possible Shipping Container / Cargo Box"
+   - Morphological Identifiers: Large rectangular intermodal container (e.g. 20ft/40ft TEU) with sharp 90-degree corners, corrugated side profile, and flat shadow.
+
+6. "Possible Ghost Net / Abandoned Fishing Gear"
+   - Morphological Identifiers: Diffuse, irregular web-like acoustic cloud or filament tangle snagged on the substrate or reef.
+
+7. "Possible Submerged Pipeline / Cable"
+   - Morphological Identifiers: Continuous, narrow linear feature or pipeline tracing across the acoustic swath.
+
+8. "General Marine Debris / Discarded Tire"
+   - Morphological Identifiers: Small artificial objects, tires (toroidal circular highlight and shadow), scrap metal, or discarded fishing traps.
+
+9. "Natural Seabed Formation"
+   - Morphological Identifiers: Periodic sand ripples, sedimentary waves, rock outcrop, biogenic reef, mud flat with NO artificial or human anomaly.
+
+10. "No significant anomaly"
+   - Morphological Identifiers: Uniform backscatter without distinct anomalies.
+
+ACCURACY RULES FOR LOCALIZATION & MARKING (BOUNDING BOX):
+- boundingBox: Normalized coordinates [0 to 1000]:
+  ymin: upper boundary (0 - 1000)
+  xmin: left boundary (0 - 1000)
+  ymax: lower boundary (0 - 1000)
+  xmax: right boundary (0 - 1000)
+- Accurately and tightly frame the target object:
+  - For sonar acoustic targets, tightly enclose BOTH the bright acoustic highlight (specular reflection) AND its accompanying acoustic shadow (acoustic void).
+  - For a human body or diver, frame the entire person from head to feet/fins including their direct cast shadow.
+  - Do NOT draw an oversized box around empty water or irrelevant seabed.
+- If multiple distinct targets or anomalies are identified, include each in "detectedObjects".
+- Confidence must be a realistic float between 0.00 and 1.00 based on acoustic resolution.
+- Severity must be "LOW", "MEDIUM", or "HIGH" ("HIGH" for human bodies, toxic chemical drums, or major navigation hazards).`;
 
 const requestSchema = {
   type: Type.OBJECT,
   properties: {
     detected: {
       type: Type.BOOLEAN,
-      description: "Whether a convincing marine debris or anomaly was detected.",
+      description: "Whether a convincing target, marine debris, human form, or anomaly was detected.",
     },
     objectType: {
       type: Type.STRING,
-      description: "Type of anomaly detected or 'No significant anomaly'",
+      description: "Specific target classification from taxonomy",
     },
     confidence: {
       type: Type.NUMBER,
@@ -80,11 +101,11 @@ const requestSchema = {
     },
     anomalyReason: {
       type: Type.STRING,
-      description: "Specific acoustic-shadow and reflectivity characteristics observed.",
+      description: "Specific acoustic-shadow, reflectivity, scale, and morphology characteristics observed.",
     },
     boundingBox: {
       type: Type.OBJECT,
-      description: "Normalized coordinates from 0 to 1000",
+      description: "Normalized coordinates from 0 to 1000 for primary target",
       properties: {
         ymin: { type: Type.NUMBER },
         xmin: { type: Type.NUMBER },
@@ -93,9 +114,32 @@ const requestSchema = {
       },
       required: ["ymin", "xmin", "ymax", "xmax"],
     },
+    detectedObjects: {
+      type: Type.ARRAY,
+      description: "All distinct targets detected in the scan",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          label: { type: Type.STRING },
+          confidence: { type: Type.NUMBER },
+          severity: { type: Type.STRING, enum: ["LOW", "MEDIUM", "HIGH"] },
+          boundingBox: {
+            type: Type.OBJECT,
+            properties: {
+              ymin: { type: Type.NUMBER },
+              xmin: { type: Type.NUMBER },
+              ymax: { type: Type.NUMBER },
+              xmax: { type: Type.NUMBER },
+            },
+            required: ["ymin", "xmin", "ymax", "xmax"],
+          },
+        },
+        required: ["label", "confidence", "severity", "boundingBox"],
+      },
+    },
     recommendation: {
       type: Type.STRING,
-      description: "Actionable recommendation for survey vessel operations",
+      description: "Actionable recommendation for survey vessel operations or SAR response",
     },
     humanVerificationRequired: {
       type: Type.BOOLEAN,
@@ -203,16 +247,61 @@ export default async function handler(req: any, res: any) {
 
     const parsedData = JSON.parse(cleanedText);
 
-    // Sanitize bounding box
-    if (parsedData.detected && parsedData.boundingBox) {
-      const box = parsedData.boundingBox;
-      const ymin = typeof box.ymin === "number" ? Math.max(0, Math.min(950, box.ymin)) : 350;
-      const xmin = typeof box.xmin === "number" ? Math.max(0, Math.min(950, box.xmin)) : 350;
-      const ymax =
-        typeof box.ymax === "number" ? Math.max(ymin + 40, Math.min(1000, box.ymax)) : Math.min(1000, ymin + 180);
-      const xmax =
-        typeof box.xmax === "number" ? Math.max(xmin + 40, Math.min(1000, box.xmax)) : Math.min(1000, xmin + 180);
-      parsedData.boundingBox = { ymin, xmin, ymax, xmax };
+    function normalizeBoundingBox(box: any): { ymin: number; xmin: number; ymax: number; xmax: number } | null {
+      if (!box) return null;
+      let { ymin, xmin, ymax, xmax } = box;
+      if (typeof ymin !== "number" || typeof xmin !== "number" || typeof ymax !== "number" || typeof xmax !== "number") {
+        return null;
+      }
+      // If coordinates were returned on 0.0 - 1.0 scale rather than 0 - 1000
+      if (ymax <= 1 && xmax <= 1 && (ymin > 0 || xmin > 0 || ymax > 0 || xmax > 0)) {
+        ymin *= 1000;
+        xmin *= 1000;
+        ymax *= 1000;
+        xmax *= 1000;
+      }
+      ymin = Math.max(0, Math.min(990, Math.round(ymin)));
+      xmin = Math.max(0, Math.min(990, Math.round(xmin)));
+      ymax = Math.max(ymin + 15, Math.min(1000, Math.round(ymax)));
+      xmax = Math.max(xmin + 15, Math.min(1000, Math.round(xmax)));
+      return { ymin, xmin, ymax, xmax };
+    }
+
+    // Sanitize bounding box and multi-target detection if detected
+    if (parsedData.detected) {
+      if (parsedData.boundingBox) {
+        parsedData.boundingBox = normalizeBoundingBox(parsedData.boundingBox);
+      }
+
+      if (Array.isArray(parsedData.detectedObjects) && parsedData.detectedObjects.length > 0) {
+        parsedData.detectedObjects = parsedData.detectedObjects
+          .map((obj: any, idx: number) => {
+            const normBox = normalizeBoundingBox(obj.boundingBox);
+            if (!normBox) return null;
+            return {
+              id: `target-${idx + 1}`,
+              label: String(obj.label || parsedData.objectType || "Target"),
+              confidence: typeof obj.confidence === "number" ? Math.max(0, Math.min(1, obj.confidence)) : (parsedData.confidence || 0.85),
+              severity: ["LOW", "MEDIUM", "HIGH"].includes(obj.severity) ? obj.severity : parsedData.severity,
+              boundingBox: normBox,
+            };
+          })
+          .filter(Boolean);
+
+        if (!parsedData.boundingBox && parsedData.detectedObjects.length > 0) {
+          parsedData.boundingBox = parsedData.detectedObjects[0].boundingBox;
+        }
+      } else if (parsedData.boundingBox) {
+        parsedData.detectedObjects = [
+          {
+            id: "target-1",
+            label: parsedData.objectType,
+            confidence: parsedData.confidence,
+            severity: parsedData.severity,
+            boundingBox: parsedData.boundingBox,
+          },
+        ];
+      }
     }
 
     return res.status(200).json({

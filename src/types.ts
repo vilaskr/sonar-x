@@ -7,6 +7,15 @@ export interface BoundingBox {
   xmax: number; // 0 - 1000 normalized
 }
 
+export interface DetectedObject {
+  id?: string;
+  label: string;
+  confidence: number; // 0.0 to 1.0
+  severity: SeverityLevel;
+  boundingBox: BoundingBox;
+  description?: string;
+}
+
 export interface SonarImageMeta {
   fileName: string;
   fileSizeFormatted: string;
@@ -32,6 +41,7 @@ export interface SonarAnalysisResult {
   description: string;
   anomalyReason: string;
   boundingBox: BoundingBox | null;
+  detectedObjects?: DetectedObject[];
   recommendation: string;
   humanVerificationRequired: boolean;
   isDemo?: boolean;

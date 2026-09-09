@@ -24,47 +24,86 @@ async function createAnnotatedImageDataUrl(
       // Draw original sonar image
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
+      // Collect targets to draw: detectedObjects if present, else fallback to boundingBox
+      const targets =
+        result.detectedObjects && result.detectedObjects.length > 0
+          ? result.detectedObjects
+          : result.detected && result.boundingBox
+          ? [
+              {
+                id: 'primary',
+                label: result.objectType,
+                confidence: result.confidence,
+                severity: result.severity,
+                boundingBox: result.boundingBox,
+              },
+            ]
+          : [];
+
       // If detection with bounding box exists, draw overlay
-      if (result.detected && result.boundingBox) {
-        const { ymin, xmin, ymax, xmax } = result.boundingBox;
-        const boxX = (xmin / 1000) * canvas.width;
-        const boxY = (ymin / 1000) * canvas.height;
-        const boxW = ((xmax - xmin) / 1000) * canvas.width;
-        const boxH = ((ymax - ymin) / 1000) * canvas.height;
+      if (result.detected && targets.length > 0) {
+        targets.forEach((target) => {
+          const { ymin, xmin, ymax, xmax } = target.boundingBox;
+          const boxX = (xmin / 1000) * canvas.width;
+          const boxY = (ymin / 1000) * canvas.height;
+          const boxW = ((xmax - xmin) / 1000) * canvas.width;
+          const boxH = ((ymax - ymin) / 1000) * canvas.height;
 
-        // Bounding box border
-        ctx.lineWidth = Math.max(3, Math.round(canvas.width / 350));
-        ctx.strokeStyle = '#ef4444'; // bright red
-        ctx.strokeRect(boxX, boxY, boxW, boxH);
+          const isHuman =
+            target.label.toLowerCase().includes('human') ||
+            target.label.toLowerCase().includes('diver') ||
+            target.label.toLowerCase().includes('person');
 
-        // Highlight wash inside bounding box
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
-        ctx.fillRect(boxX, boxY, boxW, boxH);
+          const strokeColor = isHuman ? '#e11d48' : '#ef4444';
+          const fillBg = isHuman ? 'rgba(225, 29, 72, 0.2)' : 'rgba(239, 68, 68, 0.15)';
+          const tagBg = isHuman ? '#be123c' : '#dc2626';
 
-        // Crosshairs on corners
-        const cornerLen = Math.min(boxW, boxH) * 0.2;
-        ctx.lineWidth = Math.max(4, Math.round(canvas.width / 280));
-        ctx.strokeStyle = '#ffffff';
+          // Bounding box border
+          ctx.lineWidth = Math.max(3, Math.round(canvas.width / 350));
+          ctx.strokeStyle = strokeColor;
+          ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-        // Top-left
-        ctx.beginPath();
-        ctx.moveTo(boxX, boxY + cornerLen);
-        ctx.lineTo(boxX, boxY);
-        ctx.lineTo(boxX + cornerLen, boxY);
-        ctx.stroke();
+          // Highlight wash inside bounding box
+          ctx.fillStyle = fillBg;
+          ctx.fillRect(boxX, boxY, boxW, boxH);
 
-        // Label banner
-        const labelText = `${result.objectType.toUpperCase()} [${Math.round(result.confidence * 100)}%]`;
-        ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 50))}px monospace`;
-        const textMetrics = ctx.measureText(labelText);
-        const padding = 6;
-        const textH = Math.max(16, Math.round(canvas.width / 45));
+          // Crosshairs on corners
+          const cornerLen = Math.min(boxW, boxH) * 0.2;
+          ctx.lineWidth = Math.max(4, Math.round(canvas.width / 280));
+          ctx.strokeStyle = '#ffffff';
 
-        ctx.fillStyle = '#dc2626';
-        ctx.fillRect(boxX, Math.max(0, boxY - textH - padding * 2), textMetrics.width + padding * 2, textH + padding * 2);
+          // Top-left corner
+          ctx.beginPath();
+          ctx.moveTo(boxX, boxY + cornerLen);
+          ctx.lineTo(boxX, boxY);
+          ctx.lineTo(boxX + cornerLen, boxY);
+          ctx.stroke();
 
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(labelText, boxX + padding, Math.max(textH, boxY - padding));
+          // Bottom-right corner
+          ctx.beginPath();
+          ctx.moveTo(boxX + boxW, boxY + boxH - cornerLen);
+          ctx.lineTo(boxX + boxW, boxY + boxH);
+          ctx.lineTo(boxX + boxW - cornerLen, boxY + boxH);
+          ctx.stroke();
+
+          // Label banner
+          const labelText = `${target.label.toUpperCase()} [${Math.round(target.confidence * 100)}%]`;
+          ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 55))}px monospace`;
+          const textMetrics = ctx.measureText(labelText);
+          const padding = 6;
+          const textH = Math.max(16, Math.round(canvas.width / 50));
+
+          ctx.fillStyle = tagBg;
+          ctx.fillRect(
+            boxX,
+            Math.max(0, boxY - textH - padding * 2),
+            textMetrics.width + padding * 2,
+            textH + padding * 2
+          );
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(labelText, boxX + padding, Math.max(textH, boxY - padding));
+        });
       }
 
       try {
