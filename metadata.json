@@ -1,0 +1,6 @@
+{
+  "name": "SONARX - Marine Anomaly Detection",
+  "description": "AI-powered automated underwater marine debris and anomaly detection system using side-scan sonar imagery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
